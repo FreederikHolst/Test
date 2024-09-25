@@ -3,71 +3,160 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Returdata Analyse - POC</title>
+  <title>POC Stoy</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
-      padding: 0;
     }
-    table {
+
+    h1 {
+      color: #333;
+      text-align: left; /* Sørger for at overskriften er venstrejusteret */
+    }
+
+    h3 {
+      color: #333;
+    }
+
+    .dashboard {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-top: 20px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      padding: 20px;
+      background-color: #f9f9f9;
+    }
+
+    .dashboard > div {
+      flex: 1;
+      margin-right: 20px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      background-color: #ffffff;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .dashboard table {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 20px;
     }
-    table, th, td {
-      border: 1px solid #ccc;
-    }
-    th, td {
-      padding: 10px;
+
+    .dashboard th, .dashboard td {
+      border: 1px solid #ddd;
+      padding: 8px;
       text-align: left;
     }
-    th {
-      background-color: #f4f4f4;
-    }
-    .anbefalinger {
-      margin-top: 20px;
-    }
-    .anbefalinger h3 {
-      margin-bottom: 10px;
-    }
-    .button {
-      padding: 10px 15px;
+
+    .dashboard th {
       background-color: #007BFF;
       color: white;
-      border: none;
-      border-radius: 5px;
+    }
+
+    .dashboard ul {
+      list-style-type: none;
+      padding: 0;
+    }
+
+    .dashboard li {
+      padding: 5px;
+      border-bottom: 1px solid #ddd;
+      display: flex; /* Gør elementerne fleksible */
+      justify-content: space-between; /* Placerer indholdet på modsatte sider */
+      align-items: center; /* Centrerer indholdet lodret */
+    }
+
+    .dashboard li:last-child {
+      border-bottom: none;
+    }
+
+    /* CSS til cirklen */
+    #recommendationCircle {
+      width: 100px; /* Diameter */
+      height: 100px; /* Diameter */
+      border-radius: 50%; /* Gør det til en cirkel */
+      background-color: #36A2EB; /* Cirkelfarve */
+      color: white; /* Tekstfarve */
+      display: flex;
+      align-items: center; /* Centrer vertikalt */
+      justify-content: center; /* Centrer horisontalt */
+      font-size: 24px; /* Størrelse på teksten */
+      margin: 0 auto; /* Kun centrer horisontalt */
+    }
+
+    /* Juster flexbokse for at undgå for meget margen i dashboard */
+    .dashboard > div:last-child {
+      margin-right: 0;
+    }
+
+    /* Ny CSS til fjernelse af anbefalinger */
+    .remove {
+      color: red;
       cursor: pointer;
+      margin-left: 10px;
     }
-    .button:hover {
-      background-color: #0056b3;
+
+    #recommendation-text {
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 10px;
+      background-color: #f0f0f0;
+      margin-top: 10px; /* Reduceret fra 20px for at mindske afstand */
+      flex: 1;
+      text-align: left; /* Sørger for at teksten ikke er centreret */
     }
+
+    /* Styling for hvert anbefalingspunkt */
+    .recommendation-item {
+      display: flex; /* Gør hvert anbefalingspunkt fleksibelt */
+      padding: 5px;
+      border-bottom: 1px solid #ddd; /* Separator linje */
+    }
+
+    .recommendation-item:last-child {
+      border-bottom: none; /* Ingen separator på den sidste */
+    }
+
+    /* Sektionstitler */
+    h4 {
+      margin-top: 10px; /* Mindre afstand før hver sektion */
+      margin-bottom: 5px; /* Mindre afstand efter sektionstitlen */
+      color: #007BFF;
+      font-size: 18px;
+      text-align: left; /* Sektionstitler venstrejusteret */
+    }
+
+    /* Mindre afstand mellem anbefalingerne */
+    .recommendation-section {
+      margin-bottom: 10px; /* Reduceret afstand mellem sektioner */
+    }
+
   </style>
 </head>
 <body>
+  <h1>Stoy Returdata</h1>
 
-  <h1>Analyse af Returdata</h1>
+  <input type="file" id="fileInput" accept=".xlsx" />
+  <br><br>
 
-  <h2>Returdata</h2>
-  <table id="returdata-tabel">
-    <thead>
-      <tr>
-        <th>Produktnavn</th>
-        <th>Størrelse</th>
-        <th>Returneringsårsag</th>
-        <th>Antal Returneringer</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+  <!-- Dashboard placeholder -->
+  <div id="dashboard"></div>
 
-  <div class="anbefalinger">
-    <h3>Størrelsesanbefalinger</h3>
-    <ul id="anbefalinger-liste"></ul>
+  <!-- Opsummering og anbefalinger -->
+  <div id="recommendation-container">
+    <div id="recommendation-text" style="font-family: Arial, sans-serif; line-height: 1.6;">
+      <!-- Anbefalinger vil blive genereret her -->
+    </div>
   </div>
 
-  <button class="button" onclick="opdaterShopify()">Opdater Produktbeskrivelser</button>
+  <!-- Knapper til generering og opdatering -->
+  <button id="generateRecommendationsButton">Generer anbefalinger</button>
+  <button onclick="updateShopifyProduct()">Send info til Shopify</button>
 
-  <script src="app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+  <script src="app.js"></script> <!-- Din JavaScript-fil -->
 </body>
 </html>
