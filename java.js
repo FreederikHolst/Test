@@ -1,27 +1,31 @@
 let returdata = [];
 
-// Funktion til at læse Excel-fil og gemme data
 document.getElementById('fileInput').addEventListener('change', function(event) {
   const file = event.target.files[0];
-  const reader = new FileReader();
   
+  // Få filnavnet uden '.xlsx'
+  const fileNameWithoutExtension = file.name.replace('.xlsx', '');
+
+  const reader = new FileReader();
+
   reader.onload = function(e) {
-    const data = new Uint8Array(e.target.result);
-    const workbook = XLSX.read(data, { type: 'array' });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    
-    // Konverterer Excel-data til JSON-format
-    returdata = XLSX.utils.sheet_to_json(worksheet);
-    
-    // Debugging: Udskriv returdata til konsollen
-    console.log(returdata); // Log returnerede data til fejlfinding
-    
-    generateDashboard(); // Generer dashboardet ved indlæsning af data
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Konverterer Excel-data til JSON-format
+      returdata = XLSX.utils.sheet_to_json(worksheet);
+      
+      // Debugging: Udskriv returdata til konsollen
+      console.log(returdata); // Log returnerede data til fejlfinding
+      
+      generateDashboard(); // Generer dashboardet ved indlæsning af data
   };
 
   reader.readAsArrayBuffer(file);
 });
+
 
 function generateDashboard() {
   const categorySummary = {};
@@ -97,17 +101,17 @@ function generateDashboard() {
   dashboardHTML += `<div id="recommendationCircle">${totalRecommendations}</div>`;
   dashboardHTML += `</div>`; // Afslut dashboardet
 
-  // Produkter med flest returneringer
-  dashboardHTML += `<div><strong>Produkter med flest returneringer</strong><br><ul>`;
-  const sortedProducts = Object.entries(productReturns)
-      .sort(([, a], [, b]) => b - a) // Sorter efter antal
-      .slice(0, 10); // Tag de 10 mest returnerede
+// Produkter med flest returneringer
+dashboardHTML += `<div><strong>Produkter med flest returneringer</strong><br><table><tr><th>Produkt</th><th>Antal returneringer</th></tr>`;
+const sortedProducts = Object.entries(productReturns)
+    .sort(([, a], [, b]) => b - a) // Sorter efter antal
+    .slice(0, 10); // Tag de 10 mest returnerede
 
-  sortedProducts.forEach(([product, count]) => {
-      dashboardHTML += `<li><strong>${product}</strong>: ${count} gange returneret</li>`;
-  });
+sortedProducts.forEach(([product, count]) => {
+    dashboardHTML += `<tr><td>${product}</td><td>${count}</td></tr>`;
+});
 
-  dashboardHTML += `</ul></div>`;
+dashboardHTML += `</table></div>`;
 
   // Sæt dashboard HTML ind i DOM
   document.getElementById('dashboard').innerHTML = dashboardHTML;
@@ -124,6 +128,33 @@ const RETURN_REASONS = {
   FREMSTÅR_IKKE_SOM_VIST: 'Fremstår ikke som vist',
 };
 
+// Knappen til at generere anbefalinger
+document.getElementById('generateRecommendationsButton').addEventListener('click', function() {
+  generateRecommendation();
+  
+  // Vis knappen, når anbefalingerne er genereret
+  document.getElementById('shopifyButtonContainer').style.display = 'block';
+  document.getElementById('generateRecommendationsButton').addEventListener('click', function() {
+    generateRecommendation();
+    document.getElementById('shopifyButtonContainer').style.display = 'block'; // Vis knappen her
+});
+
+});
+
+// Knappen til at generere anbefalinger
+document.getElementById('generateRecommendationsButton').addEventListener('click', function() {
+  generateRecommendation(); // Generer anbefalinger
+  
+  // Vis knappen, når anbefalingerne er genereret
+  document.getElementById('shopifyButtonContainer').style.display = 'block'; // Gør knappen synlig
+});
+
+// Event listener til at sende opdateringer til Shopify
+document.getElementById('sendToShopifyButton').addEventListener('click', function() {
+  updateShopifyProduct(); // Kalder funktionen til at opdatere Shopify
+});
+
+// Funktion til at generere anbefalinger
 function generateRecommendation() {
   let recommendationText = '';
   let sizeRecommendations = ''; // Holder størrelsesanbefalinger
@@ -155,14 +186,15 @@ function generateRecommendation() {
       // For anbefalinger baseret på størrelsen
       if (productData.forLille >= 6) {
           sizeRecommendations += `<div class="recommendation-item">
-              <span class="category">${productData.kategori}</span>
+              <span class="category" style="margin-right: 5px;">${productData.kategori}</span>
               <span>${product} er generelt lille i størrelsen. Anbefal at gå en størrelse op.</span>
               <span class="remove" onclick="removeRecommendation(this)">✖</span>
           </div>`;
       }
+      
       if (productData.forStor >= 6) {
           sizeRecommendations += `<div class="recommendation-item">
-              <span class="category">${productData.kategori}</span>
+              <span class="category" style="margin-right: 5px;">${productData.kategori}</span>
               <span>${product} er generelt stor i størrelsen. Anbefal at gå en størrelse ned.</span>
               <span class="remove" onclick="removeRecommendation(this)">✖</span>
           </div>`;
@@ -194,7 +226,13 @@ function generateRecommendation() {
 
   // Vis anbefalingerne
   document.getElementById('recommendation-text').innerHTML = recommendationText;
+
+  // Opdater cirklen med det samlede antal anbefalinger
+  const totalRecommendations = sizeRecommendations.split('<div class="recommendation-item">').length - 1 + otherIssues.split('<div class="recommendation-item">').length - 1;
+  document.getElementById('recommendationCircle').innerText = totalRecommendations; // Opdaterer med den nye værdi
 }
+
+
 // Funktion til at opsummere returneringer
 function summarizeReturns(data) {
   return data.reduce((acc, item) => {
