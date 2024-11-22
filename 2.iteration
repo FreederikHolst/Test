@@ -1,0 +1,629 @@
+let returdata = [];
+
+document.getElementById('fileInput').addEventListener('change', function(event) {
+    const file = event.target.files[0];
+  
+    // Få filnavnet uden '.xlsx'
+    const fileNameWithoutExtension = file.name.replace('.xlsx', '');
+
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        
+        // Konverterer Excel-data til JSON-format
+        returdata = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); // Brug header: 1 for at få data i array-format
+        
+        const transformedData = returdata.slice(1).map(row => {
+            return {
+                Description: row[1] ? row[1].split(' in ')[0] : '',
+                ReturnReason: row[4] || "Ukendt", // ReturnReason (fjerde kolonne)
+                QuantityReturned: Number(row[6]) || 0,
+                CostPrice: Number(row[10]) || 0
+            };
+        }).filter(item => item.Description && ['A', 'B', 'C', 'D', 'E', 'F', 'G'].includes(item.ReturnReason));
+        
+
+        // Opdatere returdata med de transformerede og filtrerede data
+        returdata = transformedData;
+
+        // Debugging: Udskriv returdata til konsollen
+        console.log(returdata); // Log returnerede data til fejlfinding
+        
+        generateDashboard(); // Generer dashboardet ved indlæsning af data
+    };
+
+    reader.readAsArrayBuffer(file);
+});
+
+// Resten af koden forbliver den samme...
+
+
+// Funktion til at udtrække produktnavn fra beskrivelse
+function extractProductName(description) {
+    // Finder positionen af ordet 'in' og tager alt før det
+    const index = description.indexOf(' in ');
+    if (index !== -1) {
+        return description.substring(0, index).trim();  // Returner produktnavn før "in"
+    }
+    return description;  // Hvis 'in' ikke findes, returner hele beskrivelsen
+}
+
+returdata.slice(1).forEach(row => {
+    const description = row[1];  // Produktbeskrivelse
+    const returnReason = row[4];  // ReturnReason
+
+    // Ekstraher produktnavnet uden farve og størrelse
+    const productName = extractProductName(description);
+
+    // Tjek om returneringsårsagen er kendt (A-G)
+    if (!['A', 'B', 'C', 'D', 'E', 'F', 'G'].includes(returnReason)) {
+        // Hvis returneringsårsagen ikke er kendt, spring videre til næste iteration
+        return;
+    }
+
+    // Sørg for at bruge det forenklede produktnavn til grupperingen i din summary
+    if (!summary[productName]) {
+        summary[productName] = {
+            forLille: 0,
+            forStor: 0,
+            fortrudt: 0,
+            fremstårIkkeSomVist: 0,
+            fejlPåVaren: 0,
+            forkertVare: 0,
+            andenGrund: 0
+        };
+    }
+
+    // Opdater tællingerne baseret på ReturnReason
+    switch(returnReason) {
+        case 'A':
+            summary[productName].forStor++;
+            break;
+        case 'B':
+            summary[productName].forLille++;
+            break;
+        case 'C':
+            summary[productName].fortrudt++;
+            break;
+        case 'D':
+            summary[productName].fremstårIkkeSomVist++;
+            break;
+        case 'E':
+            summary[productName].fejlPåVaren++;
+            break;
+        case 'F':
+            summary[productName].forkertVare++;
+            break;
+        case 'G':
+            summary[productName].andenGrund++;
+            break;
+    }
+});
+
+function generateDashboard() {
+    const categorySummary = {};
+    const returnReasons = {};
+    const productReturns = {};
+    let totalRecommendations = 0;
+    
+    // Initialiser totalRefundedAmount
+    let totalRefundedAmount = 0;
+
+    // Gennemgå returdata
+    returdata.forEach(item => {
+        // Log det aktuelle item
+        console.log("Current Item: ", item);
+
+        const category = item.Description || "Ukendt"; // Brug Description som kategori
+
+        // Håndter returneringsårsag
+        const returnReason = item.ReturnReason || "Ukendt";
+
+        // Initialiser categorySummary for den specifikke kategori, hvis den ikke allerede findes
+        categorySummary[category] = categorySummary[category] || { CostPrice: 0, count: 0 };
+
+        // Håndter CostPrice, konvertering fra komma til punktum
+        const costPrice = item.CostPrice ? item.CostPrice.toString().replace(',', '.') : '0'; // Erstat komma med punktum
+        const parsedCostPrice = Number(costPrice); // Konverter til tal
+
+        // Kontroller for NaN
+        if (!isNaN(parsedCostPrice)) {
+            categorySummary[category].CostPrice += parsedCostPrice; // Summér CostPrice
+            totalRefundedAmount += parsedCostPrice; // Beregn den totale refusion
+        } else {
+            console.warn(`Ugyldig CostPrice værdi: ${item.CostPrice}`); // Log advarsel for ugyldige værdier
+        }
+
+        // Tæl antal returneringer
+        categorySummary[category].count += (item.QuantityReturned || 0); // Tæl antal returneringer
+
+        // Håndter returneringsårsager uafhængigt, hvis der er en
+        if (returnReason !== "Ukendt") {
+            returnReasons[returnReason] = (returnReasons[returnReason] || 0) + (item.QuantityReturned || 0); // Håndter returnårsager
+        }
+
+        // Håndter produktreturer
+        const productKey = `${item.Description} `;
+        productReturns[productKey] = (productReturns[productKey] || 0) + (item.QuantityReturned || 0); // Håndter produktreturer
+    });
+
+    // Byg dashboardet
+    let dashboardHTML = '<h3>Dashboard Opsummering:</h3>';
+    dashboardHTML += '<div class="dashboard">';
+
+    // Tabt fortjeneste
+    dashboardHTML += `<div><strong>Ikke realiseret omsætning:</strong><br><span style="font-size: 24px; color: red;">${totalRefundedAmount.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr.</span></div>`;
+
+    // Årsager Tabel
+    const reasonDescriptions = {
+        A: "Størrelse for stor",
+        B: "Størrelse for lille",
+        C: "Jeg har ændret mening",
+        D: "Varen står ikke som fremvist",
+        E: "Der er fejl på varen",
+        F: "Jeg har modtaget den forkerte vare",
+        G: "Anden grund"
+    };
+
+    dashboardHTML += `<div><strong>Retuneringer for måneden</strong><br><table><tr><th>Årsag</th><th>Antal</th></tr>`;
+    for (const reason in returnReasons) {
+        const description = reasonDescriptions[reason]; // Få beskrivelse
+        const reasonDescription = reasonDescriptions[reason] || reason; // Brug beskrivelsen fra reasonDescriptions eller fallback til koden
+    dashboardHTML += `<tr onclick="showReturnReasonsChart('${reasonDescription}', ${returnReasons[reason]})"><td>${reasonDescription}</td><td>${returnReasons[reason]}</td></tr>`;
+
+    }
+    dashboardHTML += `</table>`;
+
+    // Beregn potentielle anbefalinger
+    const summary = returdata.reduce((acc, item) => {
+        const key = item.Description; // Juster til kun at bruge Description som nøgle
+        if (!acc[key]) {
+            acc[key] = { forLille: 0, forStor: 0, fortrudt: 0, fremstårIkkeSomVist: 0, total: 0 };
+        }
+        if (item.ReturnReason.trim() === 'B') {
+            acc[key].forLille += item.QuantityReturned;
+        } else if (item.ReturnReason.trim() === 'A') {
+            acc[key].forStor += item.QuantityReturned;
+        } else if (item.ReturnReason.trim() === 'C') {
+            acc[key].fortrudt += item.QuantityReturned;
+        } else if (item.ReturnReason.trim().toLowerCase() === 'D') {
+            acc[key].fremstårIkkeSomVist += item.QuantityReturned;
+        }
+        acc[key].total += item.QuantityReturned;
+        return acc;
+    }, {});
+
+    // Grupperer størrelsesanbefalinger og tæller potentielle anbefalinger
+    for (let product in summary) {
+        const productData = summary[product];
+        if (
+            productData.forLille >= 3 || 
+            productData.forStor >= 3 || 
+            productData.fortrudt >= 2 || 
+            productData.fremstårIkkeSomVist >= 2
+        ) {
+            totalRecommendations++;
+        }
+    }
+
+    // Tilføj overskrift og cirkel for potentielle anbefalinger
+    dashboardHTML += `<h3>Potentielle anbefalinger</h3>`;
+    dashboardHTML += `<div id="recommendationCircle">${totalRecommendations}</div>`;
+    dashboardHTML += `</div>`; // Afslut dashboardet
+
+    // Produkter med flest returneringer
+    dashboardHTML += `<div><strong>Produkter med flest returneringer</strong><br><table><tr><th>Produkt</th><th>Antal returneringer</th></tr>`;
+    const sortedProducts = Object.entries(productReturns)
+        .sort(([, a], [, b]) => b - a) // Sorter efter antal
+        .slice(0, 10); // Tag de 10 mest returnerede
+
+    sortedProducts.forEach(([product, count]) => {
+        // Generér en tooltip-tekst med returneringsårsager for hvert produkt
+        const productSummary = summary[product] || {};
+        const tooltipContent = `
+            Størrelse for stor: ${productSummary.A || 0}<br>
+            Størrelse for lille: ${productSummary.B || 0}<br>
+            Fortrudt: ${productSummary.fortrudt || 0}<br>
+            Fremstår ikke som vist: ${productSummary.fremstårIkkeSomVist || 0}
+        `;
+
+        // Tilføj tooltip til produktcellen
+        dashboardHTML += `
+            <tr>
+                <td class="product-cell" data-tooltip="${tooltipContent}">${product}</td>
+                <td>${count}</td>
+            </tr>`;
+    });
+
+    dashboardHTML += `</table></div>`;
+    document.getElementById('dashboard').innerHTML = dashboardHTML;
+
+ 
+}
+ 
+
+// Konstater returårsager
+const RETURN_REASONS = {
+    FOR_STOR: 'A', // Størrelse for stor
+    FOR_LILLE: 'B', // Størrelse for lille
+    FORTRUDT: 'C', // Fortrudt
+    FREMSTÅR_IKKE_SOM_VIST: 'D' // Fremstår ikke som vist
+};
+
+function searchProduct() {
+    const searchQuery = document.getElementById('searchProduct').value.toLowerCase();
+    const filteredData = returdata.filter(item => {
+        // Matcher produktbeskrivelsen med søgestrengen
+        return item.Description.toLowerCase().includes(searchQuery);
+    });
+    
+    // Vis de filtrerede resultater
+    displaySearchResults(filteredData);
+}
+
+
+
+function generateReturnReasonBreakdown(productSummary) {
+    let breakdownHTML = '<h4>Returneringsårsager</h4>';
+    breakdownHTML += '<table>';
+    breakdownHTML += '<tr><th>Årsag</th><th>Antal</th></tr>';
+
+    for (const reason in productSummary) {
+        if (reason !== 'total') { // Undgå 'total'-feltet
+            breakdownHTML += `<tr><td>${reason}</td><td>${productSummary[reason]}</td></tr>`;
+        }
+    }
+
+    breakdownHTML += '</table>';
+    return breakdownHTML;
+}
+
+
+// Vis knappen, når anbefalingerne er genereret
+document.getElementById('shopifyButtonContainer').style.display = 'block';
+document.getElementById('generateRecommendationsButton').addEventListener('click', function() {
+    generateRecommendation();
+    document.getElementById('shopifyButtonContainer').style.display = 'block'; // Vis knappen her
+});
+
+// Knappen til at generere anbefalinger
+document.getElementById('generateRecommendationsButton').addEventListener('click', function() {
+    generateRecommendation(); // Generer anbefalinger
+    
+    // Vis knappen, når anbefalingerne er genereret
+    document.getElementById('shopifyButtonContainer').style.display = 'block'; // Gør knappen synlig
+});
+
+// Event listener til at sende opdateringer til Shopify
+document.getElementById('sendToShopifyButton').addEventListener('click', function() {
+    updateShopifyProduct(); // Kalder funktionen til at opdatere Shopify
+});
+
+// Funktion til at generere anbefalinger
+function generateRecommendation() {
+    console.log('generateRecommendation kaldt'); // Debugging
+    let recommendationText = '';
+    let sizeRecommendations = ''; // Holder størrelsesanbefalinger
+    let otherIssues = ''; // Holder andre årsager
+
+    // Tæl antal returneringer pr. produkt og årsag på tværs af størrelser
+    const summary = returdata.reduce((acc, item) => {
+        const key = `${item.Description}`; // Grupper kun efter produktbeskrivelse
+        if (!acc[key]) {
+            acc[key] = { forLille: 0, forStor: 0, fortrudt: 0, fremstårIkkeSomVist: 0, total: 0, kategori: item.Category || "Ukendt" }; // Antag, at 'Kategori' er den relevante felt
+        }
+
+// Tæl returårsagerne
+switch (item.ReturnReason.trim()) {
+    case RETURN_REASONS.FOR_LILLE:
+        acc[key].forLille += item.QuantityReturned || 0;
+        break;
+    case RETURN_REASONS.FOR_STOR:
+        acc[key].forStor += item.QuantityReturned || 0;
+        break;
+    case RETURN_REASONS.FORTRUDT:
+        acc[key].fortrudt += item.QuantityReturned || 0;
+        break;
+    case RETURN_REASONS.FREMSTÅR_IKKE_SOM_VIST:
+        acc[key].fremstårIkkeSomVist += item.QuantityReturned || 0;
+        break;
+}
+
+
+        acc[key].total += item.QuantityReturned || 0; // Total antal returneringer
+        return acc;
+    }, {});
+
+    // Generér størrelsesanbefalinger baseret på summerede data
+// Generér størrelsesanbefalinger baseret på summerede data
+for (let product in summary) {
+    const productData = summary[product];
+
+    // Hvis der er 3 eller flere returneringer pga. 'For lille', anbefal at gå en størrelse op
+    if (productData.forLille >= 3) {
+        sizeRecommendations += `<div class="recommendation-item">
+            <span><b>${product}</b> er generelt lille i størrelsen. Anbefal at gå en størrelse op.</span>
+            <span class="remove" onclick="removeRecommendation(this)">✖</span>
+        </div>`;
+    }
+
+    // Hvis der er 3 eller flere returneringer pga. 'For stor', anbefal at gå en størrelse ned
+    if (productData.forStor >= 3) {
+        sizeRecommendations += `<div class="recommendation-item">
+            <span><b>${product}</b> er generelt stor i størrelsen. Anbefal at gå en størrelse ned.</span>
+            <span class="remove" onclick="removeRecommendation(this)">✖</span>
+        </div>`;
+    }
+}
+
+
+// Tilføj sektion for fortrudte køb eller andre problemer
+for (let product in summary) {
+    const productData = summary[product];
+    if (productData.fortrudt >= 2) {
+        otherIssues += `<div class="recommendation-item">
+            <span>Kunder har ofte fortrudt køb af <strong>${product}</strong>.</span>
+            <span class="remove" onclick="removeRecommendation(this)">✖</span>
+        </div>`;
+    }
+    if (productData.fremstårIkkeSomVist >= 2) {
+        otherIssues += `<div class="recommendation-item">
+            <span>Kunder har ofte klaget over, at <strong>${product}</strong> fremstår anderledes end vist på billeder.</span>
+            <span class="remove" onclick="removeRecommendation(this)">✖</span>
+        </div>`;
+    }
+}
+
+
+    // Saml al anbefalingstekst
+    recommendationText += `<h4>Størrelsesanbefalinger</h4>`;
+    recommendationText += `<div>${sizeRecommendations}</div>`;
+    recommendationText += `<h4>Fortrudte Køb</h4>`;
+    recommendationText += `<div>${otherIssues}</div>`;
+
+    // Vis anbefalingerne
+    document.getElementById('recommendation-text').innerHTML = recommendationText;
+
+    // Opdater cirklen med det samlede antal anbefalinger
+    const totalRecommendations = sizeRecommendations.split('<div class="recommendation-item">').length - 1 + otherIssues.split('<div class="recommendation-item">').length - 1;
+    document.getElementById('recommendationCircle').innerText = totalRecommendations; // Opdater med det samlede antal anbefalinger
+}
+
+// Funktion til at opsummere returneringer
+function summarizeReturns(data) {
+  return data.reduce((acc, item) => {
+    const key = `${item.Produktnavn}`;
+      if (!acc[key]) {
+          acc[key] = { forLille: 0, forStor: 0, fortrudt: 0, fremstårIkkeSomVist: 0, total: 0, kategori: item.Kategori };
+      }
+      const returnReasonDescription = reasonDescriptions[item.Returårsag.trim()] || item.Returårsag.trim();
+acc[key][returnReasonDescription] = (acc[key][returnReasonDescription] || 0) + item['Antal retur'];
+      acc[key].total += item['Antal retur'];
+      return acc;
+  }, {});
+}
+
+const reasons = {
+    A: "Størrelse for stor",
+    B: "Størrelse for lille",
+    C: "Jeg har ændret mening",
+    D: "Varen står ikke som fremvist",
+    E: "Der er fejl på varen",
+    F: "Jeg har modtaget den forkerte vare",
+    G: "Anden grund"
+};
+
+
+// Funktion til at søge og filtrere produkter
+function searchProduct() {
+    const searchQuery = document.getElementById('searchProduct').value.toLowerCase();
+    const filteredData = returdata.filter(item => {
+        // Matcher produktbeskrivelsen med søgestrengen
+        return item.Description.toLowerCase().includes(searchQuery);
+    });
+
+    // Vis søgeresultater
+    displaySearchResults(filteredData);
+}
+
+function displaySearchResults(filteredData) {
+    const resultsContainer = document.getElementById('resultsContainer');
+    const searchResults = document.getElementById('searchResults');
+    const ctx = document.getElementById('returnReasonChart').getContext('2d');
+
+    // Tøm tidligere data
+    searchResults.innerHTML = '';
+    resultsContainer.style.display = 'none'; // Skjul som standard
+
+    if (filteredData.length === 0) {
+        searchResults.innerHTML = '<p>Ingen resultater fundet.</p>';
+        return;
+    }
+
+    resultsContainer.style.display = 'flex'; // Vis containeren ved søgning
+
+    // Opsæt data til visning
+    let resultHTML = '<h3>Resultater:</h3>';
+    const reasonsCount = {}; // Samler fordelingen af årsager
+    let totalReturns = 0;
+
+    filteredData.forEach(item => {
+        totalReturns += item.QuantityReturned;
+
+        const reason = reasons[item.ReturnReason];
+        reasonsCount[reason] = (reasonsCount[reason] || 0) + item.QuantityReturned;
+
+        resultHTML += `
+            <div>
+                <p><strong>Produkt:</strong> ${item.Description}</p>
+            </div>`;
+    });
+
+    searchResults.innerHTML = resultHTML;
+
+    // Generer Chart.js diagram
+    const labels = Object.keys(reasonsCount); // Årsager
+    const data = Object.values(reasonsCount); // Antal per årsag
+
+    // Fjern tidligere diagram (hvis et eksisterer)
+    if (window.myPieChart) {
+        window.myPieChart.destroy();
+    }
+
+    // Opret nyt diagram med naturlige proportioner
+    window.myPieChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            hover: {
+                mode: 'nearest', // Begræns interaktionen til det nærmeste punkt
+                animationDuration: 0, // Fjern hover-animation
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                title: {
+                    display: true,
+                    text: `Fordeling af årsager til returneringer (i alt ${totalReturns})`
+                },
+            },
+            animation: {
+                duration: 500, // Animation ved indlæsning
+                onComplete: function () {
+                    // Fjern eventuelle ekstra animationer
+                    this.chart.animationProgress = false;
+                }
+            }
+        }
+    });
+    
+
+    // Justér canvas-størrelse
+    const chartCanvas = document.getElementById('returnReasonChart');
+    chartCanvas.style.width = '100px';
+    chartCanvas.style.height = '100px';
+}
+
+
+// Funktion til at generere størrelsesanbefalinger
+function generateSizeRecommendations(product, productData, recommendations) {
+    const kategori = productData.kategori; // Hent kategori fra productData
+
+    // Funktion til at tilføje anbefalinger
+    function addSizeRecommendation(condition, message) {
+        if (condition) {
+            recommendations.push(createRecommendationHTML(kategori, message));
+        }
+    }
+
+    // Anvend den nye funktion til at tilføje anbefalinger
+    addSizeRecommendation(productData[RETURN_REASONS.FOR_LILLE] >= 3, 
+        `${product} er generelt lille i størrelsen. Anbefal at gå en størrelse op.`);
+    
+    addSizeRecommendation(productData[RETURN_REASONS.FOR_STOR] >= 3, 
+        `${product} er generelt stor i størrelsen. Anbefal at gå en størrelse ned.`);
+}
+  
+function createRecommendationHTML(kategori, message) {
+    return `
+        <div class="recommendation-item">
+            <span class="category">${kategori}</span>
+            <span style="margin-left: 10px;">${message}</span> <!-- Tilføjet margin -->
+            <span class="remove" onclick="removeRecommendation(this)">✖</span>
+        </div>
+    `;
+}
+
+  
+  // Funktion til at fjerne anbefalinger
+  function removeRecommendation(element) {
+    element.parentElement.remove(); // Fjern anbefalingen
+  }
+
+  function generateOtherIssues(product, productData, otherIssues) {
+    // Sørg for at bruge produktnavn uden at inkludere størrelsen
+    const productName = productData.Produktnavn || product; // Hvis Produktnavn ikke findes, brug det generiske navn
+
+    // Tjek for 'Fortrudt' årsag
+    if (productData[RETURN_REASONS.FORTRUDT] >= 2) {
+        otherIssues.push(`
+            <div class="recommendation-item">
+                <span>Kunder har ofte fortrudt køb af <strong>${productName}</strong>.</span>
+                <span class="remove" onclick="removeRecommendation(this)">✖</span>
+            </div>
+        `);
+    }
+    
+    // Tjek for 'Fremstår ikke som vist' årsag
+    if (productData[RETURN_REASONS.FREMSTÅR_IKKE_SOM_VIST] >= 2) {
+        otherIssues.push(`
+            <div class="recommendation-item">
+                <span>Kunder har ofte klaget over, at <strong>${productName}</strong> fremstår anderledes end vist på billeder.</span>
+                <span class="remove" onclick="removeRecommendation(this)">✖</span>
+            </div>
+        `);
+    }
+}
+// Funktion til at vise anbefalinger
+function displayRecommendations(recommendations, otherIssues) {
+  const recommendationText = recommendations.join('') + otherIssues.join('');
+  document.getElementById('recommendation-text').innerHTML = recommendationText;
+}
+
+// Funktion til at fjerne en anbefaling
+function removeRecommendation(element) {
+  const listItem = element.parentElement;
+  listItem.style.display = 'none'; // Skjul elementet i UI
+
+  // Opdater cirklen med det samlede antal anbefalinger
+  document.getElementById('recommendationCircle').innerText = totalRecommendations; // Opdaterer med den nye værdi
+}
+
+// Knappen til at generere anbefalinger
+document.getElementById('generateRecommendationsButton').addEventListener('click', generateRecommendation);
+
+// Funktion til at opdatere Shopify produktbeskrivelse via API (simuleret)
+async function updateShopifyProduct() {
+  const updatedDescription = document.getElementById('recommendation-text').innerHTML;
+  
+  const productId = '123456'; // ID på produktet som skal opdateres i Shopify
+  
+  try {
+    const response = await fetch(`https://your-shopify-store.myshopify.com/admin/api/2023-04/products/${productId}.json`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer DIT_SHOPIFY_API_KEY'
+      },
+      body: JSON.stringify({
+        product: {
+          id: productId,
+          body_html: updatedDescription
+        }
+      })
+    });
+
+    if (response.ok) {
+      alert('Opdatering sendt til Shopify (Raised a ticket)!');
+    } else {
+      alert('Opdatering sendt til Shopify (Raised a ticket).');
+    }
+  } catch (error) {
+    console.error('Error:', error);
+    alert('Opdatering sendt til Shopify (Raised a ticket).');
+  }
+}
